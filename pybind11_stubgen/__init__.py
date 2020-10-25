@@ -585,13 +585,38 @@ class ClassMemberStubsGenerator(FreeFunctionStubsGenerator):
     def __init__(self, name, free_function, module_name):
         super(ClassMemberStubsGenerator, self).__init__(name, free_function, module_name)
 
+    @staticmethod
+    def _correct_boost_python_self_arg(args: str) -> str:
+        """
+        If the first method arg is not explicitly named self boost::python will name the self arg "arg1"
+        in the __doc__ string.  
+        
+        - For now at least catch the default arg1 case to avoid confusing the stubgen
+        - Perhaps need a regex?
+        """
+
+        if len(args)==0:
+            return args
+
+        args_list = args.split(",")
+
+        if args_list[0].strip().startswith("arg1:"):
+            return_list = ["self:"+args_list[0].strip()[4:],]
+            if len(args_list) > 1:
+                return_list += args_list[1:]
+        else:
+            return_list=args_list
+
+        return ", ".join(return_list)
+
     def to_lines(self):  # type: () -> List[str]
         result = []
         docstring = self.sanitize_docstring(self.member.__doc__)
         if not docstring and not (self.name.startswith("__") and self.name.endswith("__")):
             logger.debug("Docstring is empty for '%s'" % self.fully_qualified_name(self.member))
         for sig in self.signatures:
-            args = sig.args
+            args = ClassMemberStubsGenerator._correct_boost_python_self_arg(sig.args)
+
             if not args.strip().startswith("self"):
                 result.append("@staticmethod")
             else:
