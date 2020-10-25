@@ -66,6 +66,112 @@ class FunctionSignature(object):
     # Number of invalid signatures found so far
     n_invalid_signatures = 0
 
+    # boost python arg reshuffling
+    default_value_regex = re.compile(r"\((\w+)\)(\w+)=(.+)")
+    no_default_value_regex = re.compile(r"\((\w+)\)(\w+)")
+    no_type_regex = re.compile(r"(\w+)")
+
+
+    @staticmethod
+    def _format_boost_doc_args(args: str) -> Tuple[bool, str]:
+
+        if len(args) == 0:
+            return True, ""
+
+        # split args
+
+        all_args_optional = args[0] == '['
+        some_args_optional = "[," in args or all_args_optional
+
+        # pre-clean brackets
+
+        preprocessed_args = args.replace("]", "")
+        if all_args_optional:
+            preprocessed_args = preprocessed_args[1:]
+
+        if not some_args_optional:
+            required_args = preprocessed_args.split(",")
+            optional_args = []
+        elif not all_args_optional and some_args_optional:
+            args_list = preprocessed_args.split("[,")
+            required_args = args_list[0].split(",")
+            optional_args = args_list[1:]
+        elif all_args_optional:
+            required_args = []
+            optional_args = preprocessed_args.split("[,")
+        else:
+            assert False, f"Unexpected condition for: {args}"
+
+        reformatted_args_list = []
+
+        # required
+
+        for arg in required_args:
+            result = FunctionSignature.no_default_value_regex.match(arg.strip())
+            if result:
+
+                type_name = result.group(1)
+                if type_name == "object":
+                    type_name = "typing.Any"
+
+                reformatted_args_list.append(f"{result.group(2)}: {type_name}")
+                continue
+
+            result = FunctionSignature.no_type_regex.match(arg.strip())
+            if result:
+                reformatted_args_list.append(f"{result.group(1)}: typing.Any")
+                continue
+
+            logger.log(logging.WARNING, f"[boost::python] Couldn't process required arg: {arg} from {args}")
+            ok = False
+
+        # optional (n.b. this will implicitly supress optional args which do not explicitly state their default)
+
+        ok = True
+
+        for arg in optional_args:
+            
+            result = FunctionSignature.default_value_regex.match(arg.strip())
+            if result:
+
+                type_name = result.group(1)
+                if type_name == "object":
+                    type_name = "typing.Any"
+
+                reformatted_args_list.append(f"{result.group(2)}: {type_name} = {result.group(3)}")
+                continue
+
+            result = FunctionSignature.no_default_value_regex.match(arg.strip())
+            if result:
+
+                type_name = result.group(1)
+                if type_name == "object":
+                    type_name = "typing.Any"
+
+                reformatted_args_list.append(f"{result.group(2)}: {type_name}")
+                continue
+
+            result = FunctionSignature.no_type_regex.match(arg.strip())
+            if result:
+                reformatted_args_list.append(f"{result.group(1)}: typing.Any")
+                continue
+            
+            logger.log(logging.WARNING, f"[boost::python] Couldn't process optional arg: {arg} from {args}")
+            ok = False
+
+
+        reformatted_args = ", ".join(reformatted_args_list)
+
+        return ok, reformatted_args
+    
+    @staticmethod
+    def _format_boost_doc_rtype(rtype: str) -> Tuple[bool, str]:
+
+        if rtype.endswith(":"):
+            rtype = rtype.replace(":", "").strip()
+
+        return True, rtype
+
     @classmethod
     def n_fatal_errors(cls):
         return ((0 if cls.ignore_invalid_defaultarg else cls.n_invalid_default_values) +
@@ -84,6 +190,14 @@ class FunctionSignature(object):
                 logger.log(lvl, "Default argument value(s) replaced with ellipses (...):")
                 for invalid_default in invalid_defaults:
                     logger.log(lvl, "    {}".format(invalid_default))
+
+            ok, boost_args = self._format_boost_doc_args(self.args)
+            if ok:
+                self.args = boost_args
+
+            ok, boost_rtype = self._format_boost_doc_rtype(self.rtype)
+            if ok:
+                self.rtype = boost_rtype
 
             function_def_str = "def {sig.name}({sig.args}) -> {sig.rtype}: ...".format(sig=self)
             try:
