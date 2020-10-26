@@ -1,4 +1,4 @@
-from typing import Optional, Callable, Iterator, Iterable, List, Set, Mapping, Tuple, Any, Dict
+from typing import Optional, Callable, Iterator, Iterable, List, Set, Mapping, Tuple, Any, Dict, Optional
 from functools import cmp_to_key
 import ast
 import warnings
@@ -425,6 +425,24 @@ class StubsGenerator(object):
         return PropertySignature(getter_rtype, setter_args, access_type)
 
     @staticmethod
+    def boost_python_property_signature_from_docstring(prop, module_name): # type:  (Any, str)-> PropertySignature
+
+        getter_rtype = "None"
+        setter_args = "None"
+        access_type = PropertySignature.NONE
+
+        if hasattr(prop, "fget") and prop.fget is not None:
+            access_type |= PropertySignature.READ_ONLY
+            getter_rtype = "typing.Any" # sadly boost::python does not seem to encode any type info into props
+            
+        if hasattr(prop, "fset") and prop.fset is not None:
+            access_type |= PropertySignature.WRITE_ONLY
+            setter_args = "self, *args"
+
+        return PropertySignature(getter_rtype, setter_args, access_type)
+
+
+    @staticmethod
     def remove_signatures(docstring):  # type: (str) ->str
 
         if docstring is None:
@@ -642,10 +660,11 @@ class PropertyStubsGenerator(StubsGenerator):
         self.name = name
         self.prop = prop
         self.module_name = module_name
-        self.signature = None  # type: PropertySignature
+        self.signature = None  # type: Optional[PropertySignature]
 
     def parse(self):
-        self.signature = self.property_signature_from_docstring(self.prop, self.module_name)
+
+        self.signature = self.boost_python_property_signature_from_docstring(self.prop, self.module_name)
 
     def to_lines(self):  # type: () -> List[str]
 
