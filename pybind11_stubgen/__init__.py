@@ -148,12 +148,12 @@ class FunctionSignature(object):
                 if type_name == "object":
                     type_name = "typing.Any"
 
-                reformatted_args_list.append(f"{result.group(2)}: {type_name}")
+                reformatted_args_list.append(f"{result.group(2)}: {type_name} = ...")
                 continue
 
             result = FunctionSignature.no_type_regex.match(arg.strip())
             if result:
-                reformatted_args_list.append(f"{result.group(1)}: typing.Any")
+                reformatted_args_list.append(f"{result.group(1)}: typing.Any = ...")
                 continue
             
             logger.log(logging.WARNING, f"[boost::python] Couldn't process optional arg: {arg} from {args}")

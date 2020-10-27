@@ -26,7 +26,7 @@ from pybind11_stubgen import FunctionSignature as FS
         ),
         (
              "(object)self, (float)red, (float)green, (float)blue [, (float)alpha]",
-             "self: typing.Any, red: float, green: float, blue: float, alpha: float"
+             "self: typing.Any, red: float, green: float, blue: float, alpha: float = ..."
         )
     ],
 )
