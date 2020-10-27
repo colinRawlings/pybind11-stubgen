@@ -11,6 +11,8 @@ import os
 import re
 from argparse import ArgumentParser
 
+import XCore
+
 logger = logging.getLogger(__name__)
 
 _visited_objects = []
@@ -686,6 +688,54 @@ class PropertyStubsGenerator(StubsGenerator):
 
         return result
 
+class XCoreChildPropertyStubsGenerator():
+    def __init__(self, name: str, module_name: str, class_name: str) -> None:
+
+        self.name = name
+        self.module_name = module_name
+        self.class_name = class_name
+
+    def parse(self) -> None:
+        pass
+
+    def to_lines(self) -> List[str]:
+        
+        return ["@property", 
+                f"def {self.name}(self) -> {self.module_name}.{self.class_name}: ...", ]
+
+class XCorePropertyGroupStubsGenerator():
+
+    def __init__(self, klass) -> None:
+
+        self.klass = klass
+        assert inspect.isclass(klass)
+        self.child_properties = [] # typing.List[XCoreChildPropertyStubsGenerator]
+
+    def parse(self):
+        
+        if not issubclass(self.klass, XCore.PropertyGroup):
+            return
+
+        try:
+            children = self.klass().Children
+        except Exception as e:
+            logger.debug(f"Failed to create instance of: {self.klass.__name__}")
+            return
+
+        for child in children:
+            self.child_properties.append(XCoreChildPropertyStubsGenerator(child.Name, child.__class__.__module__, child.__class__.__name__))
+
+    def to_lines(self) -> List[str]:
+
+        result = []
+
+        for cp in self.child_properties:
+            result.extend(cp.to_lines())
+            result.extend(["",])
+
+        return result
+
+
 
 class ClassStubsGenerator(StubsGenerator):
     ATTRIBUTES_BLACKLIST = ("__class__", "__module__", "__qualname__", "__dict__", "__weakref__", "__annotations__")
@@ -711,6 +761,7 @@ class ClassStubsGenerator(StubsGenerator):
         self.fields = []  # type: List[AttributeStubsGenerator]
         self.properties = []  # type: List[PropertyStubsGenerator]
         self.methods = []  # type: List[ClassMemberStubsGenerator]
+        self.property_groups = [] # type: List[XCorePropertyGroupStubsGenerator]
 
         self.base_classes = []
         self.involved_modules_names = set()  # Set[str]
@@ -759,10 +810,16 @@ class ClassStubsGenerator(StubsGenerator):
                 self.fields.append(AttributeStubsGenerator(name, member))
                 # logger.warning("Unknown member %s type : `%s` " % (name, str(type(member))))
 
+        # property group 
+
+        if any([base==XCore.PropertyGroup for base in bases]):
+            self.property_groups.append(XCorePropertyGroupStubsGenerator(self.klass))
+
         for x in itertools.chain(self.classes,
                                  self.methods,
                                  self.properties,
-                                 self.fields):
+                                 self.fields,
+                                 self.property_groups):
             x.parse()
 
         for B in bases:
@@ -805,6 +862,9 @@ class ClassStubsGenerator(StubsGenerator):
             result.extend(map(self.indent, p.to_lines()))
 
         for p in self.fields:
+            result.extend(map(self.indent, p.to_lines()))
+
+        for p in self.property_groups:
             result.extend(map(self.indent, p.to_lines()))
 
         result.append(self.indent("pass"))
@@ -1011,6 +1071,10 @@ def recursive_mkdir_walker(subdirs, callback):  # type: (List[str], Callable) ->
 
 
 def main(args=None):
+
+    XCore.SetLogLevel(XCore.eLogCategory.Warning)
+    app = XCore.GetOrCreateConsoleApp(init_path=os.path.dirname(XCore.__file__), black_list=["CPythonPlugin", "CJosuaUIPlugin"])
+
     parser = ArgumentParser(prog='pybind11-stubgen', description="Generates stubs for specified modules")
     parser.add_argument("-o", "--output-dir", help="the root directory for output stubs", default="./stubs")
     parser.add_argument("--root-module-suffix", type=str, default="-stubs", dest='root_module_suffix',
@@ -1090,6 +1154,8 @@ def main(args=None):
         if FunctionSignature.n_fatal_errors() > 0:
             exit(1)
 
+    if app != None:
+        app.Finalize()
 
 if __name__ == "__main__":
     main()
